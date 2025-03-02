@@ -1,9 +1,9 @@
-from .environment import Environment, SolutionStepEnvironment, JointPRStepEnvironment
+from .environment import Environment, SolutionStepEnvironment, JointPRStepEnvironment, AuctionEnviroment
 from .controller import Controller
 from .solution import Solution
 from .recorder import Recorder
 from .counter import Counter
-from .scenario import Scenario, BasicScenario
+from .scenario import Scenario, BasicScenario, MultiAgentScenario
 
 
 __all__ = [
@@ -16,4 +16,6 @@ __all__ = [
     'Counter',
     'Scenario',
     'BasicScenario',
+    'MultiAgentScenario',
+    'AuctionEnviroment'
 ]

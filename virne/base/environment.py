@@ -6,6 +6,7 @@
 import os
 import copy
 import time
+import random
 import numpy as np
 from pprint import pprint
 
@@ -475,6 +476,91 @@ class JointPRStepEnvironment(Environment):
         """Compute the reward of the step."""
         return 0
 
+
+class AuctionEnviroment(SolutionStepEnvironment):
+    def __init__(self, p_net, v_net_simulator, controller, recorder, counter, **kwargs):
+        super(AuctionEnviroment, self).__init__(p_net, v_net_simulator, controller, recorder, counter, **kwargs)
+        self.agents_bids = [] # agents_bids[agent][vnf]
+    
+    def place_bid(self, bids):
+        self.agents_bids = bids
+
+    def select_winner(self):
+        if not self.agents_bids:
+            raise ValueError("No bids placed.")
+
+        winner_list = []
+        for vnf in range(len(self.agents_bids[0])):
+            max_bid = 0
+            winner = None
+            for agent in range(len(self.agents_bids)):
+                if self.agents_bids[agent][vnf] > max_bid:
+                    max_bid = self.agents_bids[agent][vnf]
+                    winner = agent
+                elif self.agents_bids[agent][vnf] == max_bid:
+                    winner = random.choice([winner, agent])
+            winner_list.append(winner)
+
+        return winner_list
+
+    def step(self, solution: Solution):
+        observation, reward, done, info = super(AuctionEnviroment, self).step(solution)
+
+        return observation, reward, done, info
+
+    def split_observations(self, observation):
+        """
+        Split the observation into multiple agents' observations.
+
+        Args:
+            observation (dict): The original observation.
+
+        Returns:
+            list: A list of observations for each agent.
+        """
+        v_net = observation['v_net']
+        p_net = observation['p_net']
+        num_agents = len(self.agents_bids)
+
+        # Split p_net into multiple agents' p_net
+        # TODO：按照 agent 所在的网络域进行分割
+        p_net_splits = np.array_split(p_net, num_agents)
+
+        observations = [{'v_net': v_net, 'p_net': p_net_split} for p_net_split in p_net_splits]
+        return observations
+
+    def split_rewards(self, reward):
+        """
+        Split the reward into multiple agents' rewards.
+
+        Args:
+            reward (float): The original reward.
+
+        Returns:
+            list: A list of rewards for each agent.
+        """
+        num_vnfs = len(self.agents_bids[0])
+        num_agents = len(self.agents_bids)
+        rewards = [0] * num_agents
+
+        # Reward 首先按照此次竞拍的 vnf 个数均分
+        base_reward = reward / num_vnfs
+
+        for vnf in range(num_vnfs):
+            winning_agent = self.select_winner()[vnf]
+            winning_bid = self.agents_bids[winning_agent][vnf]
+            avg_bid = np.mean([self.agents_bids[agent][vnf] for agent in range(num_agents)])
+
+            # 获胜的 agent 获得 base_reward * (avg_bid /winning_bid)
+            rewards[winning_agent] += base_reward * (avg_bid /winning_bid)
+
+            # 其他 agent 均分剩余价值
+            remaining_reward = base_reward * (1 - (avg_bid /winning_bid))
+            for agent in range(num_agents):
+                if agent != winning_agent:
+                    rewards[agent] += remaining_reward / (num_agents - 1)
+
+        return rewards
 
 if __name__ == '__main__':
     pass

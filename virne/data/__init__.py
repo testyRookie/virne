@@ -1,4 +1,4 @@
-from .network import BaseNetwork, PhysicalNetwork, VirtualNetwork
+from .network import BaseNetwork, PhysicalNetwork, VirtualNetwork, MultiDomainPhysicalNetwork
 from .virtual_network_request_simulator import VirtualNetworkRequestSimulator
 from .generator import Generator
 from .attribute import BaseAttribute
@@ -10,5 +10,6 @@ __all__ = [
     'VirtualNetwork',
     'VirtualNetworkRequestSimulator',
     'Generator',
-    'BaseAttribute'
+    'BaseAttribute',
+    'MultiDomainPhysicalNetwork'
 ]

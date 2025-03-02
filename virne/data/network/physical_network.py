@@ -9,6 +9,7 @@ import copy
 import random
 import numpy as np
 import networkx as nx
+from networkx.algorithms import community
 
 from .base_network import BaseNetwork
 from ..attribute import NodeStatusAttribute, LinkStatusAttribute
@@ -192,3 +193,165 @@ class PhysicalNetwork(BaseNetwork):
         p_net.link_attr_benchmarks = p_net.get_link_attr_benchmarks()
         p_net.link_sum_attr_benchmarks = p_net.get_link_sum_attr_benchmarks()
         return p_net
+
+
+class MultiDomainPhysicalNetwork(PhysicalNetwork):
+    """
+    MultiDomainPhysicalNetwork class is a subclass of PhysicalNetwork class. It represents a multi-domain physical network.
+
+    Attributes:
+        domain_attr (str): The attribute name for domain ID.
+        domain_graphs (dict): A dictionary mapping domain IDs to their corresponding subgraphs.
+        inter_domain_graph (nx.Graph): The inter-domain relationship graph.
+
+    Methods:
+        get_subgraph_by_domain(domain_id: int) -> nx.Graph:
+            Returns the subgraph corresponding to the given domain ID.
+
+        generate_inter_domain_graph() -> nx.Graph:
+            Generates the inter-domain relationship graph.
+    """
+    def __init__(self, incoming_graph_data: nx.Graph = None, node_attrs_setting: list = [], link_attrs_setting: list = [], **kwargs) -> None:
+        """
+        Initialize a MultiDomainPhysicalNetwork object.
+
+        Args:
+            incoming_graph_data (nx.Graph): An existing graph object (optional).
+            node_attrs_setting (list): Node attribute settings (default []).
+            link_attrs_setting (list): Link attribute settings (default []).
+            num_domains (int): The number of network domains (default 1).
+            **kwargs: Additional keyword arguments.
+        """
+        super(MultiDomainPhysicalNetwork, self).__init__(incoming_graph_data, node_attrs_setting, link_attrs_setting, **kwargs)
+        self.num_domains = kwargs.get('agents_num', 1)
+        self.domain_attr = 'domain'
+        self.domain_graphs = {}
+        self.inter_domain_graph = None
+
+    def assign_domains(self):
+        """
+        Assign domains to nodes in the network.
+        """
+        
+        if not nx.is_connected(self):
+            self = self.subgraph(max(nx.connected_components(self), key=len)).copy()
+        
+        # 使用 Louvain 算法检测社区
+        communities = list(nx.algorithms.community.greedy_modularity_communities(self))
+        
+        # 调整社区数量为 n
+        def adjust_communities(communities, n):
+            while len(communities) > n:
+                communities.sort(key=len)
+                communities[0] = communities[0].union(communities[1])
+                communities.pop(1)
+            
+            while len(communities) < n:
+                communities.sort(key=len, reverse=True)
+                largest_community = list(communities[0])
+                split_point = len(largest_community) // 2
+                communities[0] = set(largest_community[:split_point])
+                communities.append(set(largest_community[split_point:]))
+            
+            return communities
+        
+        communities = adjust_communities(communities, self.num_domains)
+        
+        # 提取子图
+        for domain_id, community in enumerate(communities):
+            network = MultiDomainPhysicalNetwork(self.subgraph(community), self.node_attrs_setting, self.link_attrs_setting)
+            network.degree_benchmark = network.get_degree_benchmark()
+            network.generate_attrs_data()
+
+            network.node_to_index = {node: i for i, node in enumerate(community)}
+            network.index_to_node = {i: node for i, node in enumerate(community)}
+
+            self.domain_graphs[domain_id] = network
+            for node in community:
+                self.nodes[node][self.domain_attr] = domain_id
+
+    def get_subgraph_by_domain(self, domain_id: int) -> nx.Graph:
+        """
+        Get the subgraph corresponding to the given domain ID.
+
+        Args:
+            domain_id (int): The domain ID.
+
+        Returns:
+            nx.Graph: The subgraph corresponding to the given domain ID.
+        """
+        return self.domain_graphs[domain_id]
+
+    def generate_inter_domain_graph(self) -> nx.Graph:
+        """
+        Generate the inter-domain relationship graph.
+
+        Returns:
+            nx.Graph: The inter-domain relationship graph.
+        """
+        inter_domain_graph = nx.Graph()
+        for u, v, data in self.edges(data=True):
+            domain_u = self.nodes[u].get(self.domain_attr)
+            domain_v = self.nodes[v].get(self.domain_attr)
+            if domain_u != domain_v:
+                if not inter_domain_graph.has_edge(domain_u, domain_v):
+                    inter_domain_graph.add_edge(domain_u, domain_v, weight=0)
+                inter_domain_graph[domain_u][domain_v]['weight'] += 1
+        self.inter_domain_graph = inter_domain_graph
+        return inter_domain_graph
+
+    @staticmethod
+    def from_setting(setting: dict, seed: int = None) -> 'MultiDomainPhysicalNetwork':
+        """
+        Create a PhysicalNetwork object from the given setting.
+
+        Args:
+            setting (dict): The network settings.
+            seed (int): The random seed for network generation.
+
+        Returns:
+            PhysicalNetwork: A PhysicalNetwork object.
+        """
+        setting = copy.deepcopy(setting)
+        node_attrs_setting = setting.pop('node_attrs_setting')
+        link_attrs_setting = setting.pop('link_attrs_setting')
+        # load topology from file
+        try:
+            if 'file_path' not in setting['topology'] \
+                and setting['topology']['file_path'] not in ['', None, 'None', 'null'] \
+                and os.path.exists(setting['topology']['file_path']):
+                raise Exception('Invalid file path for topology.')
+            file_path = setting['topology'].get('file_path')
+            net = MultiDomainPhysicalNetwork(node_attrs_setting=node_attrs_setting, link_attrs_setting=link_attrs_setting, **setting)
+            G = nx.read_gml(file_path, label='id')
+            if 'node_attrs_setting' in G.__dict__['graph']:
+                G.__dict__['graph'].pop('node_attrs_setting')
+            if 'link_attrs_setting' in G.__dict__['graph']:
+                G.__dict__['graph'].pop('link_attrs_setting')
+            net.__dict__['graph'].update(G.__dict__['graph'])
+            net.__dict__['_node'] = G.__dict__['_node']
+            net.__dict__['_adj'] = G.__dict__['_adj']
+            n_attr_names = net.nodes[list(net.nodes)[0]].keys()
+            for n_attr_name in n_attr_names:
+                if n_attr_name not in net.node_attrs.keys():
+                    net.node_attrs[n_attr_name] = NodeStatusAttribute(n_attr_name)
+            l_attr_names = net.links[list(net.links)[0]].keys()
+            for l_attr_name in l_attr_names:
+                if l_attr_name not in net.link_attrs.keys():
+                    net.link_attrs[l_attr_name] = LinkStatusAttribute(l_attr_name)
+            net.degree_benchmark = net.get_degree_benchmark()
+            print(f'Loaded the topology from {file_path}')
+        except Exception as e:
+            num_nodes = setting.pop('num_nodes')
+            net = MultiDomainPhysicalNetwork(node_attrs_setting=node_attrs_setting, link_attrs_setting=link_attrs_setting, **setting)
+            topology_setting = setting.pop('topology')
+            # topology_type = topology_setting.pop('type')
+            net.generate_topology(num_nodes, **topology_setting)
+            
+        if seed is None:
+            seed = setting.get('seed')
+        random.seed(seed)
+        np.random.seed(seed)
+        net.generate_attrs_data()
+        net.assign_domains()
+        return net

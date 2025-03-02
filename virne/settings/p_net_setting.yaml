@@ -63,3 +63,5 @@ node_attrs_setting:
   #   owner: node
   #   type: extrema
 file_name: p_net.gml
+### Multi Agent ###
+agents_num: 3

@@ -32,6 +32,7 @@ from .pg_cnn2 import PgCnn2Solver
 from .ddpg_attention import DdpgAttentionSolver
 from .pg_seq2seq import PgSeq2SeqSolver
 from .a3c_gcn_seq2seq import A3CGcnSeq2SeqSolver
+from .multiagent import MultiAgentAuctionSolver
 
 
 __all__ = [
@@ -45,5 +46,6 @@ __all__ = [
     'PgCnn2Solver',
     'PgSeq2SeqSolver',
     'A3CGcnSeq2SeqSolver',
-    'DdpgAttentionSolver'
+    'DdpgAttentionSolver',
+    'MultiAgentAuctionSolver',
 ]
